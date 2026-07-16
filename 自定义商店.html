@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New-Simukraft Shop Configurator</title>
+    <!-- JSZip for multi-file packaging -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <!-- pako for GZIP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #2d2d2d;
+            --text-color: #d4d4d4;
+            --primary-color: #0e639c;
+            --border-color: #404040;
+            --input-bg: #3c3c3c;
+            --highlight: #2980b9;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 0;
+            background-color: var(--bg-color); color: var(--text-color);
+            display: flex; flex-direction: column; height: 100vh;
+        }
+
+        header {
+            background-color: #333333; padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+
+        header h1 { margin: 0; font-size: 1.2rem; color: #fff; display: flex; align-items: center; }
+        
+        button {
+            background-color: var(--primary-color); color: white;
+            border: none; padding: 8px 15px; cursor: pointer; border-radius: 3px;
+        }
+        button:hover { background-color: #1177bb; }
+        .btn-success { background-color: #28a745; }
+        .btn-success:hover { background-color: #218838; }
+        .btn-danger { background-color: #dc3545; }
+        .btn-danger:hover { background-color: #c82333; }
+        .btn-setting { background-color: #9b59b6; }
+        .btn-setting:hover { background-color: #8e44ad; }
+        .btn-secondary { background-color: #555; }
+        .btn-secondary:hover { background-color: #666; }
+
+        .main-content {
+            display: flex; flex: 1; overflow-y: auto; overflow-x: hidden;
+            justify-content: center; padding: 20px;
+        }
+        
+        .shop-list-container {
+            width: 100%; max-width: 1200px;
+            display: flex; flex-direction: column; gap: 15px;
+        }
+
+        /* 商店卡片 */
+        .shop-card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 5px; overflow: hidden;
+        }
+
+        .shop-header {
+            background-color: #383838; padding: 10px 20px;
+            cursor: pointer; display: flex; justify-content: space-between;
+            align-items: center;
+        }
+        .shop-header:hover { background-color: #444; }
+        
+        .header-left { display: flex; align-items: center; gap: 15px; }
+        .header-left input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+        .header-title { font-size: 1.05rem; font-weight: bold; }
+        
+        /* 展开后的内部双列布局 */
+        .shop-body { padding: 15px 20px; display: none; }
+        .shop-body.active { display: flex; gap: 20px; flex-wrap: wrap; }
+
+        .shop-config-col { flex: 1; min-width: 350px; max-width: 100%; }
+        .shop-nbt-col {
+            flex: 1; min-width: 350px; max-width: 100%; background-color: #000;
+            border-radius: 5px; position: relative; border: 1px solid var(--border-color);
+            display: flex; flex-direction: column; min-height: 350px;
+        }
+
+        /* 表单样式 */
+        .form-group { margin-bottom: 8px; display: flex; align-items: center; }
+        .form-group label { width: 120px; font-size: 0.9rem; flex-shrink: 0; }
+        input[type="text"], input[type="number"] {
+            background-color: var(--input-bg); color: var(--text-color);
+            border: 1px solid var(--border-color); padding: 5px 8px;
+            flex: 1; border-radius: 3px;
+        }
+
+        /* 商品卡片 & 搜索 */
+        .offer-item-card {
+            background-color: #383838; padding: 10px; border-radius: 4px;
+            margin-bottom: 10px; position: relative; border: 1px solid #555;
+        }
+        .item-icon {
+            width: 32px; height: 32px; image-rendering: pixelated;
+            margin-left: 10px; background-color: #222; border-radius: 4px;
+        }
+        
+        .autocomplete-container { position: relative; width: 100%; margin-bottom: 10px; }
+        .autocomplete-items {
+            position: absolute; z-index: 9999; top: 100%; left: 120px; right: 0;
+            background-color: #3c3c3c; border: 1px solid var(--highlight);
+            border-radius: 0 0 4px 4px; max-height: 200px; overflow-y: auto;
+        }
+        .autocomplete-item {
+            display: flex; align-items: center; padding: 8px 10px;
+            cursor: pointer; border-bottom: 1px solid #444; color: #fff;
+        }
+        .autocomplete-item:hover { background-color: var(--highlight); }
+        .autocomplete-item img { width: 24px; height: 24px; image-rendering: pixelated; margin-right: 10px; }
+
+        /* 卡片内 NBT 预览区 */
+        .nbt-canvas-container { flex: 1; width: 100%; position: relative; }
+        .viewer-overlay {
+            position: absolute; top: 10px; left: 10px; pointer-events: auto;
+            background: rgba(0,0,0,0.6); padding: 10px; border-radius: 5px; z-index: 5;
+        }
+        
+        .drop-zone {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(30,30,30,0.8); z-index: 10; border: 2px dashed var(--border-color);
+        }
+        .drop-zone.hidden { display: none; }
+
+        /* 设置模态框 */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); z-index: 10000; align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background: var(--panel-bg); padding: 25px; border-radius: 8px;
+            width: 500px; max-width: 90%; color: #fff;
+        }
+        .modal-header { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 1.1rem; }
+        .close-modal { cursor: pointer; color: #aaa; }
+        .close-modal:hover { color: #fff; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>New-Simukraft Shop Configurator <span id="save-status" style="font-size: 0.8rem; margin-left: 15px; color: #aaa; font-weight: normal;">(读取中...)</span></h1>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn-secondary" onclick="manualSave()">💾 手动保存</button>
+            <button class="btn-setting" onclick="toggleSettings(true)">⚙️ 导入语言包</button>
+            <button class="btn-success" id="downloadBtn" onclick="downloadAllZipped()">📦 打包已选的建筑 (.zip)</button>
+        </div>
+    </header>
+
+    <div class="main-content">
+        <div class="shop-list-container">
+            <div id="shops-wrapper"></div>
+            <button onclick="addShop()" style="width: 100%; padding: 15px; font-size: 1.1rem;">+ 添加新商店卡片</button>
+            <div style="text-align: center; margin-top: 20px;">
+                <button class="btn-danger" style="background-color: transparent; border: 1px solid #dc3545; color: #dc3545;" onclick="clearAllData()">🗑️ 清除所有本地缓存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 语言包导入模态框 -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>⚙️ 批量导入词库 (选择文件夹)</span>
+                <span class="close-modal" onclick="toggleSettings(false)">✖</span>
+            </div>
+            <p>
+                当前加载词条数量: <strong id="dictCount" style="color: #3498db;">0</strong><br><br>
+                请选择 <code>All_Languages</code> 文件夹。系统会自动提取物品中文名。<br>
+                <span style="color: #e74c3c;">导入后将自动保存到本地，下次打开无需重复导入。</span>
+            </p>
+            <div class="form-group" style="margin-top: 20px;">
+                <input type="file" id="langFolderInput" webkitdirectory directory multiple style="width: 100%; background: #222; padding: 10px;">
+            </div>
+            <button class="btn-success" id="importBtn" style="width: 100%;" onclick="importLanguageFolder()">开始解析文件夹</button>
+        </div>
+    </div>
+
+    <script>
+        // ================= 全局状态与词典 =================
+        let itemDictionary = {};
+        let shops = [];
+        let shopCounter = 0;
+        let offerCounter = 0;
+
+        const textureLoader = new THREE.TextureLoader();
+
+        window.onload = function() {
+            loadState(); // 读取本地存储
+            
+            document.addEventListener("click", function (e) {
+                if(!e.target.closest('.autocomplete-container')) {
+                    closeAllAutocompletes();
+                }
+            });
+
+            // 全局动画循环
+            animate();
+
+            // 监听窗口大小改变调整画布
+            window.addEventListener('resize', () => {
+                shops.forEach(s => {
+                    if (s.renderer && document.getElementById(`shop-body-${s.id}`).classList.contains('active')) {
+                        resizeShopCanvas(s);
+                    }
+                });
+            });
+            
+            // 自动保存定时器
+            setInterval(saveState, 5000);
+            window.addEventListener('beforeunload', saveState);
+        };
+
+        function animate() {
+            requestAnimationFrame(animate);
+            shops.forEach(s => {
+                if(s.renderer && document.getElementById(`shop-body-${s.id}`).classList.contains('active')) {
+                    s.controls.update();
+                    s.renderer.render(s.scene, s.camera);
+                }
+            });
+        }
+
+        // ================= 本地数据持久化 =================
+        function saveState() {
+            try {
+                // 1. 保存词典
+                localStorage.setItem('simcity_itemDictionary', JSON.stringify(itemDictionary));
+                
+                // 2. 序列化商店数据
+                const shopsData = [];
+                shops.forEach(s => {
+                    const card = document.getElementById(`shop-body-${s.id}`);
+                    if (!card) return;
+                    
+                    const offers = [];
+                    card.querySelectorAll('.offer-item-card').forEach(o => {
+                        offers.push({
+                            item: o.querySelector('.o-item').value,
+                            cost: o.querySelector('.o-cost').value
+                        });
+                    });
+                    
+                    let nbtBase64 = null;
+                    if (s.nbtBuffer) {
+                        const bytes = new Uint8Array(s.nbtBuffer);
+                        let binary = '';
+                        for (let i = 0; i < bytes.byteLength; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        nbtBase64 = window.btoa(binary);
+                    }
+                    
+                    shopsData.push({
+                        checked: document.getElementById(`shop-check-${s.id}`).checked,
+                        sId: card.querySelector('.s-id').value,
+                        sAuthor: card.querySelector('.s-author').value,
+                        sJobtype: card.querySelector('.s-jobtype').value,
+                        sSize: card.querySelector('.s-size').value,
+                        sName: card.querySelector('.s-name').value,
+                        sJobid: card.querySelector('.s-jobid').value,
+                        sStart: card.querySelector('.s-start').value,
+                        sEnd: card.querySelector('.s-end').value,
+                        offers: offers,
+                        nbtBase64: nbtBase64
+                    });
+                });
+                
+                localStorage.setItem('simcity_shops', JSON.stringify(shopsData));
+                
+                // 更新状态UI
+                const status = document.getElementById('save-status');
+                const time = new Date().toLocaleTimeString();
+                status.innerText = `(已自动保存 ${time})`;
+                status.style.color = "#2ecc71";
+                setTimeout(() => status.style.color = "#aaa", 2000);
+            } catch (e) {
+                console.warn("Storage exception", e);
+                document.getElementById('save-status').innerText = `(保存失败: 空间不足)`;
+                document.getElementById('save-status').style.color = "#e74c3c";
+            }
+        }
+
+        function manualSave() {
+            saveState();
+        }
+
+        function clearAllData() {
+            if(confirm("警告：这会清除所有本地保存的商店配置和中文词库，不可恢复！确定要清除吗？")) {
+                localStorage.removeItem('simcity_itemDictionary');
+                localStorage.removeItem('simcity_shops');
+                location.reload();
+            }
+        }
+
+        function loadState() {
+            // 1. 读取词典
+            const dictStr = localStorage.getItem('simcity_itemDictionary');
+            if (dictStr) {
+                try { itemDictionary = JSON.parse(dictStr); } catch(e){}
+            }
+            updateDictCountUI();
+            
+            // 2. 读取商店
+            const shopsStr = localStorage.getItem('simcity_shops');
+            if (shopsStr) {
+                try {
+                    const shopsData = JSON.parse(shopsStr);
+                    if (shopsData.length > 0) {
+                        for (const d of shopsData) {
+                            addShop(d);
+                        }
+                        updateDownloadBtnText();
+                        document.getElementById('save-status').innerText = `(本地配置加载成功)`;
+                        return; 
+                    }
+                } catch(e) {}
+            }
+            
+            // 兜底：没有本地保存，生成一个空白商店
+            addShop();
+            updateDownloadBtnText();
+            document.getElementById('save-status').innerText = `(新会话)`;
+        }
+
+        // ================= 词库逻辑 =================
+        function toggleSettings(show) { document.getElementById('settingsModal').style.display = show ? 'flex' : 'none'; }
+        function updateDictCountUI() { document.getElementById('dictCount').innerText = Object.keys(itemDictionary).length; }
+
+        async function importLanguageFolder() {
+            const files = document.getElementById('langFolderInput').files;
+            const btn = document.getElementById('importBtn');
+            if (files.length === 0) return alert("请先选择一个文件夹！");
+
+            btn.innerText = "正在读取解析中..."; btn.disabled = true;
+            let addedCount = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                if (file.name.endsWith('.json')) {
+                    try {
+                        const content = await file.text();
+                        const json = JSON.parse(content);
+                        for (const [key, value] of Object.entries(json)) {
+                            if (key.startsWith("item.") || key.startsWith("block.")) {
+                                const parts = key.split('.');
+                                if (parts.length >= 3) {
+                                    const fullId = `${parts[1]}:${parts.slice(2).join('_')}`;
+                                    if(!itemDictionary[value]) {
+                                        itemDictionary[value] = fullId;
+                                        addedCount++;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (err) {}
+                }
+            }
+            updateDictCountUI();
+            btn.innerText = "开始解析文件夹"; btn.disabled = false;
+            saveState(); // 立即保存词典
+            alert(`导入成功！提取了 ${addedCount} 个物品词条，并已存入本地缓存。`);
+            toggleSettings(false);
+        }
+
+        // ================= 商店 UI 逻辑 =================
+        function addShop(data = null) {
+            const sId = shopCounter++;
+            shops.push({ 
+                id: sId, offers: [], nbtBuffer: null, meshes: [], 
+                infoSize: "-", infoBlocks: 0,
+                scene: null, camera: null, renderer: null, controls: null
+            });
+            
+            const isChecked = (data && data.checked === false) ? '' : 'checked';
+            const sIdVal = data ? data.sId : `shop_${sId}`;
+            
+            const html = `
+                <div class="shop-card" id="shop-card-${sId}">
+                    <div class="shop-header" onclick="toggleShop(${sId})">
+                        <div class="header-left">
+                            <input type="checkbox" class="shop-select" id="shop-check-${sId}" ${isChecked} onclick="updateDownloadBtnText(event)">
+                            <span class="header-title" id="shop-title-${sId}">🏪 ${sIdVal}</span>
+                        </div>
+                        <button class="btn-danger" style="padding:4px 10px;" onclick="removeShop(${sId}, event)">删除卡片</button>
+                    </div>
+                    
+                    <div class="shop-body" id="shop-body-${sId}">
+                        <!-- 左侧配置区 -->
+                        <div class="shop-config-col">
+                            <h3 style="margin-top:0; border-bottom:1px solid #444; padding-bottom:5px; font-size:1rem;">1. SK 基础信息</h3>
+                            <div class="form-group"><label>建筑ID (文件名):</label><input type="text" class="s-id" value="${sIdVal}" oninput="updateShopTitle(${sId})"></div>
+                            <div class="form-group"><label>作者名:</label><input type="text" class="s-author" value="${data ? data.sAuthor : 'unknown'}"></div>
+                            <div class="form-group"><label>职业类型:</label><input type="text" class="s-jobtype" value="${data ? data.sJobtype : '商人'}"></div>
+                            <div class="form-group"><label>模型尺寸:</label><input type="text" class="s-size" value="${data ? data.sSize : '1 x 1 x 1'}" placeholder="拖入右侧NBT自动填写"></div>
+                            
+                            <h3 style="border-bottom:1px solid #444; margin-top:20px; padding-bottom:5px; font-size:1rem;">2. JSON 交易配置</h3>
+                            <div class="form-group"><label>显示名称:</label><input type="text" class="s-name" value="${data ? data.sName : '店员'}"></div>
+                            <div class="form-group"><label>内部职业ID:</label><input type="text" class="s-jobid" value="${data ? data.sJobid : 'shop_staff'}"></div>
+                            <div class="form-group"><label>上班时间:</label><input type="number" class="s-start" value="${data ? data.sStart : 100}"></div>
+                            <div class="form-group"><label>下班时间:</label><input type="number" class="s-end" value="${data ? data.sEnd : 12000}"></div>
+                            
+                            <h4 style="margin-bottom:5px; font-size:0.9rem;">商品列表</h4>
+                            <div id="offers-${sId}"></div>
+                            <button onclick="addOfferToShop(${sId})" style="width:100%">+ 添加商品</button>
+                        </div>
+                        
+                        <!-- 右侧NBT渲染区 -->
+                        <div class="shop-nbt-col">
+                            <div id="drop-zone-${sId}" class="drop-zone" ondragover="dragOverHandler(event)" ondragleave="dragLeaveHandler(event)" ondrop="dropHandler(event, ${sId})">
+                                <div style="text-align: center;">
+                                    <h3>拖拽 .nbt 文件到此处</h3>
+                                    <p style="color: #aaa; font-size: 0.8em;">文件仅针对此商店生效<br>将自动填充上方尺寸</p>
+                                    <p><button onclick="document.getElementById('file-input-${sId}').click()">选择文件</button></p>
+                                    <input type="file" id="file-input-${sId}" style="display:none" accept=".nbt" onchange="fileInputChangeHandler(event, ${sId})">
+                                </div>
+                            </div>
+                            
+                            <div class="nbt-canvas-container" id="nbt-canvas-container-${sId}"></div>
+                            
+                            <div class="viewer-overlay" id="viewer-info-${sId}" style="display:none;">
+                                <div style="color: #fff; text-shadow: 1px 1px 0 #000; font-size:0.9rem;">
+                                    <strong>模型信息:</strong><br>
+                                    尺寸: <span id="info-size-${sId}">-</span><br>
+                                    方块: <span id="info-blocks-${sId}">0</span><br>
+                                    <button onclick="resetNBT(${sId})" style="margin-top:8px; padding:3px 8px; font-size:0.8rem; background-color:#e67e22;">🔄 重新导入 NBT</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('shops-wrapper').insertAdjacentHTML('beforeend', html);
+            
+            // 恢复商品列表
+            if (data && data.offers && data.offers.length > 0) {
+                data.offers.forEach(o => addOfferToShop(sId, o.cost, o.item));
+            } else {
+                addOfferToShop(sId);
+            }
+            
+            // 恢复 NBT (延时处理以不阻塞渲染)
+            if (data && data.nbtBase64) {
+                setTimeout(() => {
+                    const binary = window.atob(data.nbtBase64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                    }
+                    const fileFake = new File([bytes.buffer], `${sIdVal}.nbt`);
+                    handleNBTFile(fileFake, sId, true);
+                }, 100);
+            }
+            
+            if (!data) {
+                toggleShop(sId); // 新增的默认展开，加载的不自动展开避免卡顿
+            }
+        }
+
+        function removeShop(id, event) {
+            event.stopPropagation();
+            if(!confirm("确定要删除这个商店吗？")) return;
+            
+            const shop = shops.find(s => s.id === id);
+            if(shop && shop.renderer) shop.renderer.dispose();
+            
+            shops = shops.filter(s => s.id !== id);
+            document.getElementById(`shop-card-${id}`).remove();
+            
+            updateDownloadBtnText();
+            saveState(); // 删除后立即保存
+        }
+
+        function toggleShop(id) {
+            const body = document.getElementById(`shop-body-${id}`);
+            const isAlreadyActive = body.classList.contains('active');
+            
+            if (isAlreadyActive) {
+                body.classList.remove('active');
+                return;
+            }
+            
+            body.classList.add('active');
+            const shop = shops.find(s => s.id === id);
+
+            if (!shop.renderer) {
+                initShopThreeJS(shop);
+            } else {
+                resizeShopCanvas(shop);
+            }
+        }
+
+        function initShopThreeJS(shop) {
+            const container = document.getElementById(`nbt-canvas-container-${shop.id}`);
+            if(!container) return;
+            
+            shop.scene = new THREE.Scene();
+            shop.scene.background = new THREE.Color(0x222222);
+            
+            const w = container.clientWidth || 300;
+            const h = container.clientHeight || 350;
+            shop.camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 1000);
+            
+            shop.renderer = new THREE.WebGLRenderer({ antialias: true });
+            shop.renderer.setSize(w, h);
+            container.appendChild(shop.renderer.domElement);
+            
+            shop.controls = new THREE.OrbitControls(shop.camera, shop.renderer.domElement);
+            shop.controls.enableDamping = true; 
+            shop.controls.dampingFactor = 0.05;
+            
+            shop.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const dl1 = new THREE.DirectionalLight(0xffffff, 0.8); dl1.position.set(10, 20, 10); shop.scene.add(dl1);
+            const dl2 = new THREE.DirectionalLight(0xffffff, 0.4); dl2.position.set(-10, -20, -10); shop.scene.add(dl2);
+            shop.scene.add(new THREE.GridHelper(50, 50, 0x555555, 0x333333));
+            
+            if (shop.meshes && shop.meshes.length > 0) {
+                shop.meshes.forEach(m => shop.scene.add(m));
+                if(shop.camPos) shop.camera.position.copy(shop.camPos);
+                if(shop.controlsTarget) shop.controls.target.copy(shop.controlsTarget);
+            }
+        }
+
+        function resizeShopCanvas(shop) {
+            const container = document.getElementById(`nbt-canvas-container-${shop.id}`);
+            if(container) {
+                const w = container.clientWidth; const h = container.clientHeight;
+                if(w>0 && h>0) {
+                    shop.camera.aspect = w / h; 
+                    shop.camera.updateProjectionMatrix(); 
+                    shop.renderer.setSize(w, h);
+                }
+            }
+        }
+
+        function clearShopSceneMeshes(shop) {
+            if(!shop.scene) return;
+            const toRemove = [];
+            shop.scene.children.forEach(c => {
+                if(c.isInstancedMesh) toRemove.push(c);
+            });
+            toRemove.forEach(c => shop.scene.remove(c));
+        }
+
+        function resetNBT(shopId) {
+            document.getElementById(`drop-zone-${shopId}`).classList.remove('hidden');
+            document.getElementById(`viewer-info-${shopId}`).style.display = 'none';
+            // 清除数据并在下次保存时丢弃NBT
+            const shop = shops.find(s => s.id === shopId);
+            if(shop) shop.nbtBuffer = null;
+        }
+
+        function updateShopTitle(id) {
+            const val = document.querySelector(`#shop-card-${id} .s-id`).value;
+            document.getElementById(`shop-title-${id}`).innerText = `🏪 ${val || '未命名'}`;
+        }
+        
+        function updateDownloadBtnText(event) {
+            if(event) event.stopPropagation(); 
+            const checkedCount = document.querySelectorAll('.shop-select:checked').length;
+            document.getElementById('downloadBtn').innerText = `📦 打包已选的 ${checkedCount} 个建筑 (.zip)`;
+        }
+
+        function addOfferToShop(shopId, cost=20, item="minecraft:apple") {
+            const oId = offerCounter++;
+            const container = document.getElementById(`offers-${shopId}`);
+            const html = `
+                <div class="offer-item-card" id="offer-${oId}">
+                    <button class="btn-danger" style="position:absolute; right:5px; top:5px; padding:2px 8px;" onclick="document.getElementById('offer-${oId}').remove()">删</button>
+                    <div class="form-group autocomplete-container" style="margin-bottom:5px;">
+                        <label style="color:#3498db; width: 80px;">🔍 检索:</label>
+                        <input type="text" placeholder="输入中文..." oninput="handleChineseSearch(this, ${oId})" onclick="handleChineseSearch(this, ${oId})">
+                    </div>
+                    <div class="form-group" style="margin-bottom:5px;">
+                        <label style="width: 80px;">物品ID:</label>
+                        <input type="text" class="o-item" value="${item}" oninput="updateIcon(this, ${oId})">
+                        <img src="" class="item-icon" id="icon-${oId}" onerror="handleIconError(this)">
+                    </div>
+                    <div class="form-group">
+                        <label style="width: 80px;">金钱:</label>
+                        <input type="number" class="o-cost" value="${cost}">
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', html);
+            updateIcon(document.querySelector(`#offer-${oId} .o-item`), oId);
+        }
+
+        // ================= 搜索与图标逻辑 =================
+        function handleChineseSearch(inputElem, offerId) {
+            const val = inputElem.value.trim().toLowerCase();
+            const container = inputElem.parentNode;
+            closeAllAutocompletes();
+            if (!val) return;
+
+            const listDiv = document.createElement("div");
+            listDiv.className = "autocomplete-items";
+            container.appendChild(listDiv);
+
+            let matchCount = 0;
+            for (let cnName in itemDictionary) {
+                if (cnName.toLowerCase().includes(val)) {
+                    if (matchCount >= 20) break;
+                    const itemId = itemDictionary[cnName]; 
+                    const localName = itemId.replace(':', '__'); 
+                    
+                    const itemDiv = document.createElement("div");
+                    itemDiv.className = "autocomplete-item";
+                    itemDiv.innerHTML = `<img src="./icons/${localName}.png" onerror="handleIconError(this, '${itemId}')"><span>${cnName} <small style="color:#aaa">(${itemId})</small></span>`;
+                    
+                    itemDiv.onclick = function() {
+                        const offerCard = document.getElementById(`offer-${offerId}`);
+                        const idInput = offerCard.querySelector('.o-item');
+                        idInput.value = itemId; 
+                        inputElem.value = cnName; 
+                        updateIcon(idInput, offerId);
+                        closeAllAutocompletes();
+                    };
+                    listDiv.appendChild(itemDiv);
+                    matchCount++;
+                }
+            }
+            if(matchCount === 0) listDiv.innerHTML = `<div class="autocomplete-item" style="color:#e74c3c;">未找到 (请确保已导入词库)</div>`;
+        }
+
+        function closeAllAutocompletes() { document.querySelectorAll('.autocomplete-items').forEach(el => el.remove()); }
+
+        function updateIcon(inputElem, offerId) {
+            const img = document.getElementById(`icon-${offerId}`);
+            let val = inputElem.value.trim().toLowerCase();
+            if(!val) return;
+            if(!val.includes(':')) val = 'minecraft:' + val;
+            
+            img.dataset.name = val.split(':')[1];
+            img.removeAttribute('data-tried-block');
+            img.removeAttribute('data-tried-online');
+            img.src = `./icons/${val.replace(':', '__')}.png`;
+        }
+
+        function handleIconError(img, overrideId) {
+            const name = overrideId ? (overrideId.includes(':')?overrideId.split(':')[1]:overrideId) : img.dataset.name;
+            if(!name) return;
+            if (!img.dataset.triedOnline) {
+                img.dataset.triedOnline = 'true';
+                img.src = `https://assets.mcasset.cloud/1.21.1/assets/minecraft/textures/item/${name}.png`;
+            } else if (!img.dataset.triedBlock) {
+                img.dataset.triedBlock = 'true';
+                img.src = `https://assets.mcasset.cloud/1.21.1/assets/minecraft/textures/block/${name}.png`;
+            } else {
+                img.src = 'https://assets.mcasset.cloud/1.21.1/assets/minecraft/textures/item/chest.png'; 
+            }
+        }
+
+        // ================= 生成与打包逻辑 =================
+        function collectShopData(sId) {
+            const card = document.getElementById(`shop-body-${sId}`);
+            const baseId = card.querySelector('.s-id').value || 'shop';
+            
+            const author = card.querySelector('.s-author').value;
+            const jobType = card.querySelector('.s-jobtype').value;
+            const size = card.querySelector('.s-size').value;
+            const skContent = `# generated by SimCity Expansion\nname:${baseId}\nsize:${size}\nauthor:${author}\njob_type:${jobType}\n`;
+
+            const sName = card.querySelector('.s-name').value;
+            const jobId = card.querySelector('.s-jobid').value;
+            const tStart = parseInt(card.querySelector('.s-start').value) || 100;
+            const tEnd = parseInt(card.querySelector('.s-end').value) || 12000;
+            
+            const jsonObj = {
+                id: baseId, name: sName, job: { id: jobId, name: sName, heldItem: "" },
+                workTime: { start: tStart, end: tEnd }, offers: []
+            };
+
+            card.querySelectorAll('.offer-item-card').forEach((offerCard, i) => {
+                const item = offerCard.querySelector('.o-item').value.trim();
+                const cost = parseInt(offerCard.querySelector('.o-cost').value) || 0;
+                if(item) {
+                    const clean = item.includes(':') ? item.split(':')[1] : item;
+                    jsonObj.offers.push({
+                        id: `sell_${clean}_${i}`, visibleTo: "mixed",
+                        cost: [{ money: cost }], result: [{ count: 1, item: item }],
+                        stock: { item: item, max: 64, initial: 64, restockAmount: 16, restockInterval: 24000 }
+                    });
+                }
+            });
+            return { baseId: baseId, sk: skContent, json: JSON.stringify(jsonObj, null, 4) };
+        }
+
+        async function downloadAllZipped() {
+            const selectedShops = shops.filter(s => document.getElementById(`shop-check-${s.id}`).checked);
+            if(selectedShops.length === 0) return alert("请至少在标题栏勾选一个商店进行导出！");
+            
+            const zip = new JSZip();
+            const now = new Date().toISOString();
+            const packId = "custom.shop." + Date.now();
+            
+            const packObj = {
+                format: 2, id: packId, name: "Custom Shop Pack", version: "1.0.0",
+                author: "Player", description: `由商店管理器导出 (${selectedShops.length}个建筑)`,
+                icon: "icon.png", generated: now
+            };
+            const defaultIconBytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="), c => c.charCodeAt(0));
+            const indexObj = { kind: "simcity_expansion:pack_index", format: 2, packId: packId, generated: now, icon: "icon.png", totalFiles: 0, files: [] };
+            
+            async function addFile(path, type, category, dataOrStr) {
+                let buffer = typeof dataOrStr === 'string' ? new TextEncoder().encode(dataOrStr) : new Uint8Array(dataOrStr);
+                zip.file(path, buffer);
+                const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const sha256 = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                const fileEntry = { path: path, type: type, size: buffer.byteLength, sha256: sha256 };
+                if (category) fileEntry.category = category;
+                indexObj.files.push(fileEntry);
+                indexObj.totalFiles++;
+            }
+
+            await addFile("pack.json", "manifest", null, JSON.stringify(packObj, null, 2));
+            await addFile("icon.png", "icon", null, defaultIconBytes);
+
+            for (const s of selectedShops) {
+                const data = collectShopData(s.id);
+                const pfx = `buildings/commercial/${data.baseId}`;
+                await addFile(`${pfx}.sk`, "metadata", "commercial", data.sk);
+                await addFile(`${pfx}.json`, "simukraft", "commercial", data.json);
+                if (s.nbtBuffer) await addFile(`${pfx}.nbt`, "structure", "commercial", s.nbtBuffer);
+                else console.warn(`商店 ${data.baseId} 缺少 NBT 文件。`);
+            }
+            
+            zip.file("index.json", JSON.stringify(indexObj, null, 2));
+            const content = await zip.generateAsync({type:"blob"});
+            saveAs(content, "shop_pack.zip");
+        }
+
+        // ================= NBT 解析与拖拽 =================
+        function dragOverHandler(e) { e.preventDefault(); e.currentTarget.style.background = 'rgba(50,50,50,0.9)'; }
+        function dragLeaveHandler(e) { e.currentTarget.style.background = 'rgba(30,30,30,0.8)'; }
+        function dropHandler(e, shopId) {
+            e.preventDefault();
+            e.currentTarget.style.background = 'rgba(30,30,30,0.8)';
+            if (e.dataTransfer.files.length) handleNBTFile(e.dataTransfer.files[0], shopId);
+        }
+        function fileInputChangeHandler(e, shopId) {
+            if (e.target.files.length) handleNBTFile(e.target.files[0], shopId);
+        }
+
+        async function handleNBTFile(file, shopId, isRestore = false) {
+            document.getElementById(`drop-zone-${shopId}`).classList.add('hidden');
+            document.getElementById(`viewer-info-${shopId}`).style.display = 'block';
+            
+            try {
+                const rawBuffer = await file.arrayBuffer();
+                const shop = shops.find(s => s.id === shopId);
+                if(shop) shop.nbtBuffer = rawBuffer;
+                
+                let data = new Uint8Array(rawBuffer);
+                try { data = pako.ungzip(data); } catch(e) {}
+                
+                const NBTify = await import('https://cdn.jsdelivr.net/npm/nbtify/+esm');
+                const result = await NBTify.read(data);
+                const root = result.data[''] || result.data;
+                
+                if (!root.size || !root.blocks || !root.palette) throw new Error("缺少结构信息");
+
+                const sx = Number(root.size[0]), sy = Number(root.size[1]), sz = Number(root.size[2]);
+                
+                const sizeInput = document.querySelector(`#shop-card-${shopId} .s-size`);
+                const idInput = document.querySelector(`#shop-card-${shopId} .s-id`);
+                if(!isRestore && sizeInput) sizeInput.value = `${sx} x ${sy} x ${sz}`;
+                if(!isRestore && idInput && file.name) {
+                    idInput.value = file.name.replace(/\.nbt$/i, '');
+                    updateShopTitle(shopId);
+                }
+
+                const meshes = generateBlocksMeshes(root.blocks, root.palette, sx, sy, sz);
+                const infoSize = `${sx}x${sy}x${sz}`;
+                const infoBlocks = root.blocks.length;
+
+                if(shop) {
+                    shop.meshes = meshes;
+                    shop.infoSize = infoSize;
+                    shop.infoBlocks = infoBlocks;
+                    
+                    const maxDim = Math.max(sx, sy, sz);
+                    shop.camPos = new THREE.Vector3(maxDim, maxDim, maxDim);
+                    shop.controlsTarget = new THREE.Vector3(0, sy/2, 0);
+                    
+                    if (!shop.scene) initShopThreeJS(shop);
+                    
+                    clearShopSceneMeshes(shop);
+                    meshes.forEach(m => shop.scene.add(m));
+                    shop.camera.position.copy(shop.camPos);
+                    shop.controls.target.copy(shop.controlsTarget);
+                    shop.controls.update();
+                }
+
+                document.getElementById(`info-size-${shopId}`).innerText = infoSize;
+                document.getElementById(`info-blocks-${shopId}`).innerText = infoBlocks;
+
+            } catch (err) {
+                if(!isRestore) alert("读取 NBT 失败：" + err.message);
+                document.getElementById(`drop-zone-${shopId}`).classList.remove('hidden');
+                document.getElementById(`viewer-info-${shopId}`).style.display = 'none';
+            }
+        }
+
+        function generateBlocksMeshes(blocksArr, paletteArr, sx, sy, sz) {
+            const meshes = [];
+            const palette = paletteArr.map(p => p.Name.valueOf());
+            const blocksByName = {};
+            
+            for (const b of blocksArr) {
+                const name = palette[Number(b.state)];
+                if (name === "minecraft:air" || name === "minecraft:cave_air" || name === "minecraft:structure_void") continue;
+                if (!blocksByName[name]) blocksByName[name] = [];
+                blocksByName[name].push({ x: Number(b.pos[0]), y: Number(b.pos[1]), z: Number(b.pos[2]) });
+            }
+
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const offsetX = -sx/2 + 0.5, offsetY = 0.5, offsetZ = -sz/2 + 0.5;
+            const dummy = new THREE.Object3D();
+
+            for (const name in blocksByName) {
+                const blocks = blocksByName[name];
+                const cleanName = name.replace('minecraft:', '');
+                const material = new THREE.MeshLambertMaterial({ 
+                    color: 0x999999,
+                    transparent: cleanName.includes('glass') || cleanName.includes('leaves'),
+                    opacity: (cleanName.includes('glass') || cleanName.includes('leaves')) ? 0.7 : 1.0
+                });
+                
+                textureLoader.load(
+                    `https://assets.mcasset.cloud/1.21.1/assets/minecraft/textures/block/${cleanName}.png`,
+                    (tex) => {
+                        tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+                        material.map = tex; material.color.setHex(0xffffff); material.needsUpdate = true;
+                    }
+                );
+
+                const mesh = new THREE.InstancedMesh(geometry, material, blocks.length);
+                blocks.forEach((b, i) => {
+                    dummy.position.set(b.x + offsetX, b.y + offsetY, b.z + offsetZ);
+                    dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
+                });
+                meshes.push(mesh);
+            }
+            return meshes;
+        }
+    </script>
+</body>
+</html>
